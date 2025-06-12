@@ -1,0 +1,19 @@
+.clear-button {
+    width: 35px;
+    height: 35px;
+    padding: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 5px; /* optional for nicer round button */
+  }
+  
+  .clear-button i {
+    font-size: 20px;
+  }
+  
+  /* Optional: hover effect */
+  .clear-button:hover {
+    background-color: #f8d7da; /* light red hover */
+  }
+  

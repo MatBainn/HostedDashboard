@@ -1,0 +1,8 @@
+[
+    {
+      "origin": ["http://localhost:3000", "https://handymanapplicationcos40006.web.app", "https://handymanapplicationcos40006.firebaseapp.com"],
+      "method": ["GET", "POST", "PUT"],
+      "maxAgeSeconds": 3600
+    }
+  ]
+  

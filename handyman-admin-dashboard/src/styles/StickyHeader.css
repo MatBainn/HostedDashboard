@@ -1,0 +1,10 @@
+.sticky-header {
+    position: sticky;
+    top: 30px;
+    padding-bottom: 30px;
+    margin-bottom: 15px;
+    z-index: 10;
+    background-color: #fff;
+    border-bottom: 1px solid #eaeaea;
+  }
+  

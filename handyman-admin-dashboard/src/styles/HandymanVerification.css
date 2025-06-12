@@ -1,0 +1,389 @@
+.verification-container {
+    font-family: Arial, sans-serif;
+    height: 100%;
+    padding: 20px;
+  }
+  
+  .verification-content {
+    max-width: 1200px;
+    margin: 0 auto;
+  }
+  
+  .verification-content h1 {
+    font-size: 2rem;
+    margin-bottom: 1rem;
+    color: #333;
+  }
+  
+  .verification-content h2 {
+    font-size: 1.5rem;
+    margin-bottom: 1.5rem;
+    color: #444;
+  }
+  
+  .verification-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-bottom: 2rem;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  }
+  
+  .verification-table th {
+    background-color: #f8f9fa;
+    padding: 12px 15px;
+    text-align: left;
+    font-weight: 600;
+  }
+  
+  .verification-table td {
+    padding: 12px 15px;
+    border-top: 1px solid #e9ecef;
+  }
+  
+  .empty-row {
+    text-align: center;
+    color: #6c757d;
+    font-style: italic;
+  }
+  
+  .verification-actions {
+    display: flex;
+    gap: 15px;
+    margin-top: 20px;
+  }
+  
+  .button {
+    padding: 10px 20px;
+    border: none;
+    cursor: pointer;
+    font-size: 16px;
+    color: white;
+    border-radius: 5px;
+    transition: background-color 0.2s;
+  }
+  
+  .identity-btn { background-color: #007bff; }
+  .identity-btn:hover { background-color: #0069d9; }
+  .certificate-btn { background-color: #28a745; }
+  .certificate-btn:hover { background-color: #218838; }
+  .message-btn { background-color: #6c757d; }
+  .message-btn:hover { background-color: #5a6268; }
+  
+  /* Overlay and Sidebar/Popup styles remain the same as before */
+  .overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.5);
+    z-index: 11;
+  }
+  
+  .verification-sidebar {
+    position: fixed;
+    top: 0;
+    right: 0;
+    width: 400px;
+    height: 100%;
+    background: white;
+    box-shadow: -3px 0 15px rgba(0, 0, 0, 0.1);
+    transition: transform 0.3s ease-out;
+    padding: 20px;
+    overflow-y: auto;
+    z-index: 1000; /* Higher than the navigation sidebar */
+    transform: translateX(100%);
+  }
+  
+  .verification-sidebar.show {
+    transform: translateX(0);
+  }
+  
+  .message-popup {
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%) scale(0.9);
+    width: 500px;
+    max-width: 90%;
+    background: white;
+    padding: 25px;
+    border-radius: 8px;
+    box-shadow: 0 5px 20px rgba(0, 0, 0, 0.2);
+    z-index: 30;
+    opacity: 0;
+    transition: all 0.3s ease;
+    visibility: hidden;
+  }
+  
+  .message-popup.show {
+    transform: translate(-50%, -50%) scale(1);
+    opacity: 1;
+    visibility: visible;
+  }
+  
+  .message-popup h2 {
+    margin-top: 0;
+    color: #333;
+  }
+  
+  .close-btn {
+    position: absolute;
+    top: 15px;
+    right: 15px;
+    cursor: pointer;
+    font-size: 24px;
+    color: #666;
+    transition: color 0.2s;
+  }
+  
+  .close-btn:hover {
+    color: #333;
+  }
+  
+  .guidelines {
+    margin-top: 20px;
+    color: #555;
+  }
+  
+  .guidelines h3 {
+    color: #444;
+  }
+  
+  .guidelines ul {
+    list-style-type: none;
+    padding: 0;
+  }
+  
+  .guidelines li {
+    margin: 8px 0;
+    padding-left: 25px;
+    position: relative;
+  }
+  
+  .guidelines li:before {
+    position: absolute;
+    left: 0;
+  }
+  
+  .guidelines li:nth-child(-n+4):before {
+    content: "✓";
+    color: #28a745;
+  }
+  
+  .guidelines li:nth-child(n+5):before {
+    content: "✗";
+    color: #dc3545;
+  }
+  
+  .textarea {
+    width: 100%;
+    height: 80px;
+    margin-top: 15px;
+    padding: 10px;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    resize: vertical;
+  }
+  
+  .message-textarea {
+    height: 150px;
+  }
+  
+  .actions {
+    display: flex;
+    justify-content: space-between;
+    margin-top: 15px;
+    gap: 10px;
+  }
+  
+  .approve-btn, .decline-btn, .send-btn {
+    flex: 1;
+    padding: 12px;
+  }
+  
+  .approve-btn { 
+    background-color: #28a745;
+  }
+  .approve-btn:hover {
+    background-color: #218838;
+  }
+  
+  .decline-btn { 
+    background-color: #dc3545;
+  }
+  .decline-btn:hover {
+    background-color: #c82333;
+  }
+  
+  .send-btn {
+    background-color: #17a2b8;
+  }
+  .send-btn:hover {
+    background-color: #138496;
+  }
+
+
+
+  /* Add these new styles to your existing CSS file */
+
+/* Status Filter Buttons */
+.status-filter {
+    display: flex;
+    gap: 10px;
+    margin-bottom: 20px;
+  }
+  
+  .status-btn {
+    padding: 8px 16px;
+    border: 1px solid #ddd;
+    background: white;
+    border-radius: 4px;
+    cursor: pointer;
+  }
+  
+  .status-btn.active {
+    background: #007bff;
+    color: white;
+    border-color: #007bff;
+  }
+  
+  /* Search and Controls */
+  .controls-container {
+    display: flex;
+    justify-content: space-between;
+    margin-bottom: 20px;
+    align-items: center;
+  }
+  
+  .search-container {
+    display: flex;
+    align-items: center;
+    gap: 15px;
+  }
+  
+  .search-container input {
+    padding: 8px 12px;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    width: 250px;
+  }
+  
+  .entries-selector {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+  }
+  
+  .entries-selector select {
+    padding: 5px;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+  }
+  
+  .action-buttons {
+    display: flex;
+    gap: 10px;
+  }
+  
+  .date-selector {
+    padding: 8px;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+  }
+  
+  .filter-btn, .export-btn {
+    padding: 8px 16px;
+    border: 1px solid #ddd;
+    background: white;
+    border-radius: 4px;
+    cursor: pointer;
+  }
+  
+  .filter-btn {
+    background: #f8f9fa;
+  }
+  
+  .export-btn {
+    background: #28a745;
+    color: white;
+    border-color: #28a745;
+  }
+  
+  /* Table Styles */
+  .status-indicator {
+    margin-right: 10px;
+  }
+  
+  .view-btn {
+    background: none;
+    border: none;
+    color: #007bff;
+    cursor: pointer;
+    text-decoration: underline;
+  }
+  
+  .status-badge {
+    padding: 4px 8px;
+    border-radius: 12px;
+    font-size: 0.8rem;
+  }
+  
+  .status-badge.pending {
+    background: #fff3cd;
+    color: #856404;
+  }
+  
+  .status-badge.approved {
+    background: #d4edda;
+    color: #155724;
+  }
+  
+  .status-badge.declined {
+    background: #f8d7da;
+    color: #721c24;
+  }
+  
+  /* Pagination */
+  .pagination {
+    display: flex;
+    justify-content: center;
+    gap: 10px;
+    margin-top: 20px;
+  }
+  
+  .pagination button {
+    padding: 5px 10px;
+    border: 1px solid #ddd;
+    background: white;
+    cursor: pointer;
+  }
+
+  .checkbox-container {
+    margin: 15px 0;
+  }
+  
+  .checkbox-item {
+    display: flex;
+    align-items: center;
+    margin: 8px 0;
+    padding-left: 25px;
+    position: relative;
+  }
+  
+  .checkbox-item input[type="checkbox"] {
+    margin-right: 10px;
+  }
+  
+  .select-all {
+    font-weight: bold;
+    margin-bottom: 10px;
+    padding-bottom: 5px;
+    border-bottom: 1px solid #eee;
+  }
+  
+  .error-message {
+    color: #dc3545;
+    margin-top: 10px;
+    font-size: 0.9rem;
+  }
