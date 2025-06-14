@@ -1,18 +1,36 @@
-import React, { useState } from "react";
-import { Table, Form, Button, Badge, Modal, Alert } from "react-bootstrap";
+// TOFIX: Modal Chanes, And send a modal  notification
+import React, { useState, useEffect } from "react";
+import {
+  Table,
+  Form,
+  Button,
+  Badge,
+  Modal,
+  Alert,
+  Row,
+  Col,
+  Card,
+} from "react-bootstrap";
 import emailjs from "@emailjs/browser";
-import feedbackData from "../data/feedbackData";
-import PaginationControls from "../components/PaginationControls"; 
+import PaginationControls from "../components/PaginationControls";
 import StickyHeader from "../components/StickyHeader";
+import { ref, onValue, get, set } from "firebase/database";
+import { database as db } from "../firebase";
+import ExportReportButton from "../components/ExportReportButton";
 
 function SupportFeedback() {
   const [searchTerm, setSearchTerm] = useState("");
   const [filterStatus, setFilterStatus] = useState("");
   const [filterCategory, setFilterCategory] = useState("");
-  const [tickets, setTickets] = useState(feedbackData);
+  const [tickets, setTickets] = useState([]);
   const [selectedTicket, setSelectedTicket] = useState(null);
   const [showModal, setShowModal] = useState(false);
   const [replyMessage, setReplyMessage] = useState("");
+  const [modalNotification, setModalNotification] = useState({
+    show: false,
+    message: "",
+    variant: "",
+  });
   const [notification, setNotification] = useState({
     show: false,
     message: "",
@@ -20,29 +38,53 @@ function SupportFeedback() {
   });
   const [isSending, setIsSending] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
-const entriesPerPage = 10; // You can adjust to 10, 15, 20
+  const [newTicketData, setNewTicketData] = useState({
+    user: "",
+    email: "",
+    subject: "",
+    message: "",
+    category: "",
+  });
 
-const currentUser = JSON.parse(localStorage.getItem("currentUser"));
+  const entriesPerPage = 10;
+  const currentUser = JSON.parse(localStorage.getItem("currentUser"));
 
+  useEffect(() => {
+    const ticketsRef = ref(db, "support_requests");
+    onValue(ticketsRef, (snapshot) => {
+      const data = snapshot.val();
+      if (data) {
+        const ticketArray = Object.entries(data).map(([id, ticket]) => ({
+          id,
+          ...ticket,
+          status: ticket.status || "Open",
+          createdAt: ticket.createdAt || "N/A",
+          lastUpdatedAt: ticket.lastUpdatedAt || "N/A",
+          replies: ticket.replies || [],
+        }));
+        setTickets(ticketArray);
+      }
+    });
+  }, []);
 
-const filteredAllTickets = tickets.filter((ticket) => {
-  const lowerSearch = searchTerm.toLowerCase();
+  const filteredAllTickets = tickets.filter((ticket) => {
+    const lowerSearch = searchTerm.toLowerCase();
+    const userName = (ticket.user || "").toLowerCase();
+    const ticketId = (ticket.id || "").toLowerCase();
 
-  const matchesSearch =
-    ticket.id.toString().toLowerCase().includes(lowerSearch) ||
-    ticket.user.toLowerCase().includes(lowerSearch);
+    return (
+      (ticketId.includes(lowerSearch) || userName.includes(lowerSearch)) &&
+      (filterStatus === "" || ticket.status === filterStatus) &&
+      (filterCategory === "" || ticket.category === filterCategory)
+    );
+  });
 
-  const matchesStatus = filterStatus === "" || ticket.status === filterStatus;
-  const matchesCategory = filterCategory === "" || ticket.category === filterCategory;
-
-  return matchesSearch && matchesStatus && matchesCategory;
-});
-
-// Pagination logic: slice tickets to show only for current page
-const indexOfLastEntry = currentPage * entriesPerPage;
-const indexOfFirstEntry = indexOfLastEntry - entriesPerPage;
-const currentTickets = filteredAllTickets.slice(indexOfFirstEntry, indexOfLastEntry);
-
+  const indexOfLastEntry = currentPage * entriesPerPage;
+  const indexOfFirstEntry = indexOfLastEntry - entriesPerPage;
+  const currentTickets = filteredAllTickets.slice(
+    indexOfFirstEntry,
+    indexOfLastEntry
+  );
 
   const getStatusBadge = (status) => {
     switch (status) {
@@ -66,6 +108,7 @@ const currentTickets = filteredAllTickets.slice(indexOfFirstEntry, indexOfLastEn
   const handleView = (ticket) => {
     setSelectedTicket(ticket);
     setReplyMessage("");
+    setModalNotification({ show: false, message: "", variant: "" });
     setShowModal(true);
   };
 
@@ -75,77 +118,123 @@ const currentTickets = filteredAllTickets.slice(indexOfFirstEntry, indexOfLastEn
     setReplyMessage("");
   };
 
-  const handleReply = (e) => {
+  const handleReply = async (e) => {
     e.preventDefault();
-  
     if (selectedTicket && replyMessage.trim() !== "" && !isSending) {
-      setIsSending(true); // disable multiple clicks
-  
+      setIsSending(true);
+      const timestamp = new Date().toISOString();
+      const responseEntry = {
+        message: replyMessage,
+        time: timestamp,
+        repliedBy: currentUser?.firstName || "admin",
+      };
+
       const templateParams = {
         user: selectedTicket.user,
         user_email: selectedTicket.email,
         subject: selectedTicket.subject,
         message: selectedTicket.message,
         category: selectedTicket.category,
-        date: selectedTicket.date,
+        date: selectedTicket.createdAt,
         response: replyMessage,
-        time: new Date().toLocaleString()
+        time: new Date().toLocaleString(),
       };
-  
-      emailjs.send(
-        "service_atdlzb4",
-        "template_p9jpaw9",
-        templateParams,
-        "I6CD2UFXfVfbcm238"
-      )
-      .then(() => {
-        const updatedTickets = tickets.map((ticket) =>
-          ticket.id === selectedTicket.id
-            ? { ...ticket, response: replyMessage, status: "In Progress" }
-            : ticket
-        );
-        setTickets(updatedTickets);
-        setSelectedTicket({ ...selectedTicket, response: replyMessage, status: "In Progress" });
-  
-        // ✅ Show Success
-        setNotification({
-          show: true,
-          message: `✅ Reply to #${selectedTicket.id} successfully sent!`,
-          variant: "success"
+
+      emailjs
+        .send(
+          "service_atdlzb4",
+          "template_p9jpaw9",
+          templateParams,
+          "I6CD2UFXfVfbcm238"
+        )
+        .then(async () => {
+          const ticketRef = ref(db, `support_requests/${selectedTicket.id}`);
+          const snapshot = await get(ticketRef);
+          const currentData = snapshot.val() || {};
+          const updatedReplies = [
+            ...(currentData.replies || []),
+            responseEntry,
+          ];
+
+          const updatedTicket = {
+            ...currentData,
+            status: "In Progress",
+            lastUpdatedAt: timestamp,
+            replies: updatedReplies,
+          };
+
+          await set(ticketRef, updatedTicket);
+          setSelectedTicket({ id: selectedTicket.id, ...updatedTicket });
+
+          setModalNotification({
+            show: true,
+            message: `✅ Reply to #${selectedTicket.id} successfully sent!`,
+            variant: "success",
+          });
+          setReplyMessage("");
+        })
+        .catch((error) => {
+          console.error("❗ Failed to send email:", error);
+          setModalNotification({
+            show: true,
+            message: `❗ Failed to send reply.`,
+            variant: "danger",
+          });
+        })
+        .finally(() => {
+          setIsSending(false);
+          setTimeout(() => {
+            setModalNotification({ show: false, message: "", variant: "" });
+          }, 8000);
         });
-  
-        setReplyMessage("");
-      })
-      .catch((error) => {
-        console.error('❗ Failed to send email:', error);
-  
-        // ✅ Show Error Notification
-        setNotification({
-          show: true,
-          message: `❗ Failed to send reply to #${selectedTicket.id}. Please check and try again.`,
-          variant: "danger"
-        });
-      })
-      .finally(() => {
-        setIsSending(false); // re-enable button
-        setTimeout(() => {
-          setNotification({ show: false, message: "", variant: "" });
-        }, 10000); // hide after 10 seconds
-      });
     }
   };
-  
 
   const handleStatusChange = (e) => {
     const newStatus = e.target.value;
     if (selectedTicket) {
-      const updatedTickets = tickets.map((ticket) =>
-        ticket.id === selectedTicket.id
-          ? { ...ticket, status: newStatus }
-          : ticket
-      );
-      setTickets(updatedTickets);
-      setSelectedTicket({ ...selectedTicket, status: newStatus });
+      const updatedTicket = {
+        ...selectedTicket,
+        status: newStatus,
+        lastUpdatedAt: new Date().toISOString(),
+      };
+      const ticketRef = ref(db, `support_requests/${selectedTicket.id}`);
+      set(ticketRef, updatedTicket);
+    }
+  };
+
+  const handleNewTicketChange = (e) => {
+    const { name, value } = e.target;
+    setNewTicketData((prev) => ({ ...prev, [name]: value }));
+  };
+
+  const handleCreateTicket = (e) => {
+    e.preventDefault();
+    const { user, email, subject, message, category } = newTicketData;
+    if (user && email && subject && message && category) {
+      const id = `T${Date.now()}`;
+      const ticket = {
+        ...newTicketData,
+        status: "Open",
+        createdAt: new Date().toISOString(),
+        lastUpdatedAt: new Date().toISOString(),
+        replies: [],
+      };
+      const ticketRef = ref(db, `support_requests/${id}`);
+      set(ticketRef, ticket).then(() => {
+        setNotification({
+          show: true,
+          message: "✅ New ticket successfully created.",
+          variant: "success",
+        });
+        setNewTicketData({
+          user: "",
+          email: "",
+          subject: "",
+          message: "",
+          category: "",
+        });
+      });
     }
   };
 
@@ -169,14 +258,15 @@ const currentTickets = filteredAllTickets.slice(indexOfFirstEntry, indexOfLastEn
         </Alert>
       )}
 
+      {/* Search ,Filters, Export Report Button */}
       <Form className="d-flex align-items-center flex-wrap mb-4 gap-3 mt-4">
         <div className="d-flex flex-wrap align-items-center gap-3 mb-4 w-100">
           {/* Search Field */}
-          <div className="d-flex align-items-center flex-grow-1 gap-2">
-            <Form.Label className="mb-0">
+          <Form.Group className="flex-grow-1 me-3">
+            <Form.Label>
               <strong>Search:</strong>
             </Form.Label>
-            <div className="d-flex align-items-center flex-grow-1 gap-1">
+            <div className="d-flex gap-1">
               <Form.Control
                 type="text"
                 placeholder="Search by ID or User..."
@@ -188,20 +278,19 @@ const currentTickets = filteredAllTickets.slice(indexOfFirstEntry, indexOfLastEn
                   variant="outline-danger"
                   size="sm"
                   onClick={() => setSearchTerm("")}
-                  className="clear-button"
                 >
                   <i className="bi bi-x"></i>
                 </Button>
               )}
             </div>
-          </div>
+          </Form.Group>
 
           {/* Status Filter */}
-          <div className="d-flex align-items-center flex-grow-1 gap-2">
-            <Form.Label className="mb-0">
+          <Form.Group className="flex-grow-1 me-3">
+            <Form.Label>
               <strong>Status:</strong>
             </Form.Label>
-            <div className="d-flex align-items-center flex-grow-1 gap-1">
+            <div className="d-flex gap-1">
               <Form.Select
                 value={filterStatus}
                 onChange={(e) => setFilterStatus(e.target.value)}
@@ -217,20 +306,19 @@ const currentTickets = filteredAllTickets.slice(indexOfFirstEntry, indexOfLastEn
                   variant="outline-danger"
                   size="sm"
                   onClick={() => setFilterStatus("")}
-                  className="clear-button"
                 >
-                  <i className="bi bi-x" style={{ fontSize: "20px" }}></i>
+                  <i className="bi bi-x"></i>
                 </Button>
               )}
             </div>
-          </div>
+          </Form.Group>
 
           {/* Category Filter */}
-          <div className="d-flex align-items-center flex-grow-1 gap-2">
-            <Form.Label className="mb-0">
+          <Form.Group className="flex-grow-1 me-3">
+            <Form.Label>
               <strong>Category:</strong>
             </Form.Label>
-            <div className="d-flex align-items-center flex-grow-1 gap-1">
+            <div className="d-flex gap-1">
               <Form.Select
                 value={filterCategory}
                 onChange={(e) => setFilterCategory(e.target.value)}
@@ -247,17 +335,34 @@ const currentTickets = filteredAllTickets.slice(indexOfFirstEntry, indexOfLastEn
                   variant="outline-danger"
                   size="sm"
                   onClick={() => setFilterCategory("")}
-                  className="clear-button"
                 >
-                  <i className="bi bi-x" style={{ fontSize: "20px" }}></i>
+                  <i className="bi bi-x"></i>
                 </Button>
               )}
             </div>
+          </Form.Group>
+
+          {/* Export Report Button */}
+          <div >
+              <ExportReportButton
+                data={filteredAllTickets}
+                columns={[
+                  { header: "ID", accessor: "id" },
+                  { header: "User", accessor: "user" },
+                  { header: "Email", accessor: "email" },
+                  { header: "Subject", accessor: "subject" },
+                  { header: "Category", accessor: "category" },
+                  { header: "Status", accessor: (row) => row.status },
+                  { header: "Created Date", accessor: (row) => row.createdAt },
+                ]}
+                fileName="SupportFeedbackReport"
+              />
           </div>
         </div>
       </Form>
 
-      <Table   hover responsive>
+      {/* Table */}
+      <Table hover responsive>
         <thead>
           <tr>
             <th>ID</th>
@@ -265,7 +370,7 @@ const currentTickets = filteredAllTickets.slice(indexOfFirstEntry, indexOfLastEn
             <th>Subject</th>
             <th>Category</th>
             <th>Status</th>
-            <th>Date</th>
+            <th>Created Date</th>
             <th>Action</th>
           </tr>
         </thead>
@@ -277,7 +382,7 @@ const currentTickets = filteredAllTickets.slice(indexOfFirstEntry, indexOfLastEn
               <td>{ticket.subject}</td>
               <td>{ticket.category}</td>
               <td>{getStatusBadge(ticket.status)}</td>
-              <td>{ticket.date}</td>
+              <td>{ticket.createdAt}</td>
               <td>
                 <Button
                   size="sm"
@@ -291,80 +396,79 @@ const currentTickets = filteredAllTickets.slice(indexOfFirstEntry, indexOfLastEn
           ))}
         </tbody>
       </Table>
-      
+
       <PaginationControls
-  totalItems={filteredAllTickets.length}
-  entriesPerPage={entriesPerPage}
-  setEntriesPerPage={null}  // (optional if you want)
-  currentPage={currentPage}
-  setCurrentPage={setCurrentPage}
-  startIndex={indexOfFirstEntry}
- />
+        totalItems={filteredAllTickets.length}
+        entriesPerPage={entriesPerPage}
+        setEntriesPerPage={null}
+        currentPage={currentPage}
+        setCurrentPage={setCurrentPage}
+        startIndex={indexOfFirstEntry}
+      />
 
-
-      {/* Modal for Ticket Details */}
+      {/* Modal */}
       <Modal show={showModal} onHide={handleClose} centered>
         <Modal.Header closeButton>
           <Modal.Title>View #{selectedTicket?.id} Enquiry Details</Modal.Title>
         </Modal.Header>
         <Modal.Body>
           {selectedTicket && (
-            <div style={{ fontSize: "14px" }}>
-              {/* Notification inside modal */}
-              {notification.show && (
-                <Alert
-                  variant={notification.variant}
-                  onClose={() =>
-                    setNotification({ show: false, message: "", variant: "" })
-                  }
-                  dismissible
-                >
-                  {notification.message}
-                </Alert>
+            <>
+              <p>
+                <strong>User:</strong> {selectedTicket.user}
+              </p>
+              <p>
+                <strong>Email:</strong> {selectedTicket.email}
+              </p>
+              <p>
+                <strong>Subject:</strong> {selectedTicket.subject}
+              </p>
+              <p>
+                <strong>Category:</strong> {selectedTicket.category}
+              </p>
+              <p>
+                <strong>Status:</strong> {getStatusBadge(selectedTicket.status)}
+              </p>
+              <p>
+                <strong>Message:</strong>
+              </p>
+              <div className="mb-3 p-2 bg-light border rounded">
+                {selectedTicket.message}
+              </div>
+              <p>
+                <strong>Date Created:</strong> {selectedTicket.createdAt}
+              </p>
+              <p>
+                <strong>Last Updated:</strong> {selectedTicket.lastUpdatedAt}
+              </p>
+              {selectedTicket?.replies?.length > 0 && (
+                <div className="mt-4">
+                  <h5>Reply History</h5>
+                  <Row xs={1} className="g-2">
+                    {selectedTicket.replies.map((reply, idx) => (
+                      <Col key={idx}>
+                        <Card className="p-2 ms-2">
+                          <Card.Body className="p-2">
+                            <Card.Text>
+                              <strong>{reply.repliedBy}</strong> at{" "}
+                              <span className="text-muted">
+                                {new Date(reply.time).toLocaleString()}
+                              </span>
+                            </Card.Text>
+                            <div className="border-start ps-3 fst-italic">
+                              {reply.message}
+                            </div>
+                          </Card.Body>
+                        </Card>
+                      </Col>
+                    ))}
+                  </Row>
+                </div>
               )}
 
-              {/* Ticket Information */}
-              <div style={{ marginBottom: "20px" }}>
-                <p>
-                  <strong>User:</strong> {selectedTicket.user}
-                </p>
-                <p>
-                  <strong>Email:</strong> {selectedTicket.email}
-                </p>
-                <p>
-                  <strong>Subject:</strong> {selectedTicket.subject}
-                </p>
-                <p>
-                  <strong>Category:</strong> {selectedTicket.category}
-                </p>
-                <p>
-                  <strong>Message:</strong>
-                </p>
-                <div
-                  style={{
-                    backgroundColor: "#f9f9f9",
-                    padding: "10px",
-                    borderRadius: "5px",
-                    border: "1px solid #e0e0e0",
-                    marginBottom: "10px",
-                  }}
-                >
-                  {selectedTicket.message}
-                </div>
-                <p>
-                  <strong>Status:</strong>{" "}
-                  {getStatusBadge(selectedTicket.status)}
-                </p>
-                <p>
-                  <strong>Date Created:</strong> {selectedTicket.date}
-                </p>
-              </div>
+              <hr />
 
-              <hr style={{ margin: "20px 0" }} />
-
-              {/* Reply Section */}
               <Form onSubmit={handleReply}>
-                {/* Change Status at Top */}
                 <Form.Group className="mb-3">
                   <Form.Label>
                     <strong>Change Status:</strong>
@@ -380,7 +484,6 @@ const currentTickets = filteredAllTickets.slice(indexOfFirstEntry, indexOfLastEn
                   </Form.Select>
                 </Form.Group>
 
-                {/* Write Reply Area */}
                 <Form.Group className="mb-3">
                   <Form.Label>
                     <strong>Write a Reply:</strong>
@@ -393,23 +496,35 @@ const currentTickets = filteredAllTickets.slice(indexOfFirstEntry, indexOfLastEn
                     required
                   />
                 </Form.Group>
-                {/* Send Reply Button */}
+                {modalNotification.show && (
+                  <Alert
+                    variant={modalNotification.variant}
+                    onClose={() =>
+                      setModalNotification({
+                        show: false,
+                        message: "",
+                        variant: "",
+                      })
+                    }
+                    dismissible
+                    className="mt-3"
+                  >
+                    {modalNotification.message}
+                  </Alert>
+                )}
+
                 <Button
                   variant="primary"
                   type="submit"
                   className="w-100"
-                  disabled={isSending} // Disable while sending
+                  disabled={isSending}
                 >
                   {isSending ? "Sending..." : "Send Reply"}
                 </Button>
               </Form>
-            </div>
+            </>
           )}
         </Modal.Body>
-        <Modal.Footer>
-
-
-        </Modal.Footer>
       </Modal>
     </div>
   );

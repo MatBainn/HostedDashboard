@@ -1,3 +1,4 @@
+// TODO: Add a pop up modal delete or edit
 import React, { useState, useEffect } from "react";
 import {
   Table,
@@ -17,6 +18,9 @@ import { ref, onValue, set, remove } from "firebase/database";
 import { v4 as uuidv4 } from "uuid";
 import { formatDistanceToNow } from "date-fns";
 import StickyHeader from "../components/StickyHeader";
+import ConfirmModal from "../components/ConfirmModal";
+
+
 
 
 const roleOptions = ["Master Admin", "Staff Member"];
@@ -38,7 +42,11 @@ function AdminSettings() {
   });
   const [formErrors, setFormErrors] = useState({});
 
-
+  // Add state to control modal
+const [showConfirmModal, setShowConfirmModal] = useState(false);
+const [confirmAction, setConfirmAction] = useState(() => {});
+const [confirmMessage, setConfirmMessage] = useState("");
+const [isProcessing, setIsProcessing] = useState(false);
   const currentUser = JSON.parse(localStorage.getItem("currentUser"));
 
   useEffect(() => {
@@ -87,34 +95,24 @@ function AdminSettings() {
     setShowModal(true);
   };
 
-  const handleDelete = async (adminId) => {
-    if (!window.confirm("Are you sure you want to delete this admin?")) return;
-
-    const newErrors = {};
-    if (!selectedAdmin.firstName.trim())
-      newErrors.firstName = "First name is required.";
-    if (!selectedAdmin.lastName.trim())
-      newErrors.lastName = "Last name is required.";
-    if (!selectedAdmin.email.trim()) newErrors.email = "Email is required.";
-    if (!selectedAdmin.password || selectedAdmin.password.length < 6)
-      newErrors.password = "Password must be at least 6 characters.";
-    if (Object.keys(newErrors).length > 0) {
-      setFormErrors(newErrors);
-      return;
-    } else {
-      setFormErrors({});
-    }
-
-    try {
-      await remove(ref(database, `admin/${adminId}`));
-      showNotification("Admin deleted successfully.", "warning");
-    } catch (error) {
-      console.error("Failed to delete admin:", error);
-      showNotification("❌ Failed to delete admin.", "danger");
-    }
+  const handleDelete = (adminId) => {
+    setConfirmMessage("Are you sure you want to delete this admin?");
+    setConfirmAction(() => async () => {
+      setIsProcessing(true);
+      try {
+        await remove(ref(database, `admin/${adminId}`));
+        showNotification("Admin deleted successfully.", "warning");
+      } catch (error) {
+        console.error("Failed to delete admin:", error);
+        showNotification("❌ Failed to delete admin.", "danger");
+      }
+      setIsProcessing(false);
+      setShowConfirmModal(false);
+    });
+    setShowConfirmModal(true);
   };
-
-  const handleSave = async () => {
+  
+  const handleSave = () => {
     const errors = {};
     if (!selectedAdmin.firstName.trim()) errors.firstName = "First name is required.";
     if (!selectedAdmin.lastName.trim()) errors.lastName = "Last name is required.";
@@ -122,53 +120,43 @@ function AdminSettings() {
     if (!selectedAdmin.password?.trim()) errors.password = "Password is required.";
     if (!selectedAdmin.password || selectedAdmin.password.length < 6)
       errors.password = "Password must be at least 6 characters.";
-    
-  if (Object.keys(errors).length > 0) {
-    setFormErrors(errors);
-    return;
-  }
-
-    if (selectedAdmin.password.length < 6) {
-      showNotification("🔐 Password must be at least 6 characters.", "danger");
+  
+    if (Object.keys(errors).length > 0) {
+      setFormErrors(errors);
       return;
     }
-
-    if (!window.confirm("Are you sure you want to save changes?")) return;
-
-    const newErrors = {};
-    if (!selectedAdmin.firstName.trim())
-      newErrors.firstName = "First name is required.";
-    if (!selectedAdmin.lastName.trim())
-      newErrors.lastName = "Last name is required.";
-    if (!selectedAdmin.email.trim()) newErrors.email = "Email is required.";
-    if (!selectedAdmin.password || selectedAdmin.password.length < 6)
-      newErrors.password = "Password must be at least 6 characters.";
-    if (Object.keys(newErrors).length > 0) {
-      setFormErrors(newErrors);
-      return;
-    } else {
-      setFormErrors({});
-    }
-
-    try {
-      const updatedAdmin = {
-        ...selectedAdmin,
-        lastUpdated: new Date().toISOString(),
-        ...(isNewAdmin && { dateCreated: new Date().toISOString() }),
-      };
-
-      await set(ref(database, `admin/${selectedAdmin.id}`), updatedAdmin);
-      showNotification(
-        isNewAdmin
-          ? `${selectedAdmin.firstName} ${selectedAdmin.lastName} created successfully.`
-          : `Changes for ${selectedAdmin.firstName} ${selectedAdmin.lastName} saved.`
-      );
-      setShowModal(false);
-    } catch (error) {
-      console.error("Failed to update admin:", error);
-      showNotification("❌ Failed to save changes.", "danger");
-    }
+  
+    setConfirmMessage(
+      isNewAdmin
+        ? "Are you sure you want to create this admin?"
+        : "Are you sure you want to save changes to this admin?"
+    );
+    setConfirmAction(() => async () => {
+      setIsProcessing(true);
+      try {
+        const updatedAdmin = {
+          ...selectedAdmin,
+          lastUpdated: new Date().toISOString(),
+          ...(isNewAdmin && { dateCreated: new Date().toISOString() }),
+        };
+  
+        await set(ref(database, `admin/${selectedAdmin.id}`), updatedAdmin);
+        showNotification(
+          isNewAdmin
+            ? `${selectedAdmin.firstName} ${selectedAdmin.lastName} created successfully.`
+            : `Changes for ${selectedAdmin.firstName} ${selectedAdmin.lastName} saved.`
+        );
+        setShowModal(false);
+      } catch (error) {
+        console.error("Failed to update admin:", error);
+        showNotification("❌ Failed to save changes.", "danger");
+      }
+      setIsProcessing(false);
+      setShowConfirmModal(false);
+    });
+    setShowConfirmModal(true);
   };
+  
 
   const handleChange = (e) => {
     const { name, value } = e.target;
@@ -278,7 +266,7 @@ function AdminSettings() {
             </Col>
           </Row>
 
-          <Table striped bordered hover responsive>
+          <Table hover responsive>
             <thead>
               <tr>
                 <th>First Name</th>
@@ -479,6 +467,16 @@ function AdminSettings() {
           Access Denied. Only Master Admins can view this page.
         </p>
       )}
+      <ConfirmModal
+        show={showConfirmModal}
+        onHide={() => setShowConfirmModal(false)}
+        onConfirm={confirmAction}
+        title="Confirm Action"
+        body={confirmMessage}
+        loading={isProcessing}
+        confirmText="Yes, Proceed"
+        cancelText="Cancel" 
+      />
     </div>
   );
 }

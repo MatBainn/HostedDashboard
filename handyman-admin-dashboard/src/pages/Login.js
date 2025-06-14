@@ -6,7 +6,6 @@ import "bootstrap/dist/css/bootstrap.min.css";
 import "./../styles/Login.css";
 import loginImage from "../assets/dashboard-login-img.png";
 import HandymanLogo from "../assets/handyman_fakeLogo.png";
-import StickyHeader from "../components/StickyHeader";
 
 function Login() {
   const navigate = useNavigate();

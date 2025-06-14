@@ -10,25 +10,14 @@ import {
   Row,
   Col,
 } from "react-bootstrap";
-import { getDatabase, ref, onValue, update } from "firebase/database";
+import { getDatabase, ref, onValue, update, set } from "firebase/database";
 import PaginationControls from "../components/PaginationControls";
 import StickyHeader from "../components/StickyHeader";
 import ConfirmModal from "../components/ConfirmModal";
 import VerificationModal from "../components/VerificationModal";
-import "../styles/HandymanVerification.css";
+import ExportReportButton from "../components/ExportReportButton";
 
 function HandymanVerification() {
-  const [showIdentitySidebar, setShowIdentitySidebar] = useState(false);
-  const [imageData, setImageData] = useState({ front: '', back: '' });
-  const [requirements, setRequirements] = useState([
-    'Clear full name visible',
-    'Date of birth is legible',
-    'ID number matches submitted form',
-    'Photo matches the person',
-    'Document is not expired'
-  ]);
-  const [checkedItems, setCheckedItems] = useState(Array(5).fill(false));
-
   const [filterStatus, setFilterStatus] = useState("All");
   const [searchTerm, setSearchTerm] = useState("");
   const [currentPage, setCurrentPage] = useState(1);
@@ -51,63 +40,83 @@ function HandymanVerification() {
   const [isApproved, setIsApproved] = useState(false);
   const [verificationType, setVerificationType] = useState("");
   const [verificationLinks, setVerificationLinks] = useState([]);
+  const [notification, setNotification] = useState({
+    show: false,
+    message: "",
+    variant: "",
+  });
 
-  const closeAll = () => {
-    setShowIdentitySidebar(false);
-    setSelected(null);
-  };
+  // Status dropdown/modal state
+  const [showConfirmModal, setShowConfirmModal] = useState(false);
+  const [pendingStatusChange, setPendingStatusChange] = useState({
+    handymanId: null,
+    newStatus: null,
+    warning: "",
+  });
 
-  const toggleCheckbox = (index) => {
-    const updated = [...checkedItems];
-    updated[index] = !updated[index];
-    setCheckedItems(updated);
-  };
+  // Helper to approve/decline document and auto-update status if no manual override
+  const handleDocumentApproval = async (handyman, type, status) => {
+    const db = getDatabase();
+    const idField = "idApprovedStatus";
+    const certField = "certificateApprovedStatus";
 
-  const selectAll = () => setCheckedItems(Array(requirements.length).fill(true));
-  const deselectAll = () => setCheckedItems(Array(requirements.length).fill(false));
-
-  const [selected, setSelected] = useState(null);
-
-  const handleOpenIdentitySidebar = (handyman) => {
-    setImageData({
-      front: handyman.photoIdCard,
-      back: handyman.photoIdCardBack || ''
+    // Update the document status
+    await update(ref(db, `Handyman/${handyman.handymanId}`), {
+      [type === "identity" ? idField : certField]: status,
     });
-    setShowIdentitySidebar(true);
+
+    // Get latest values
+    const currentHandyman =
+      data.find((x) => x.handymanId === handyman.handymanId) || {};
+
+    // Work with updated statuses
+    const idStatus =
+      type === "identity" ? status : currentHandyman[idField] || "pending";
+    const certStatus =
+      type === "certificates" ? status : currentHandyman[certField] || "pending";
+    const manual = currentHandyman.verificationStatusManual;
+
+    // Only auto-update if manual override is false/not set
+    if (!manual) {
+      let newVerificationStatus = "pending";
+      if (idStatus === "approved" && certStatus === "approved") {
+        newVerificationStatus = "approved";
+      } else if (idStatus === "declined" || certStatus === "declined") {
+        newVerificationStatus = "declined";
+      }
+      await update(ref(db, `Handyman/${handyman.handymanId}`), {
+        verificationStatus: newVerificationStatus,
+      });
+    }
+
+    setNotification({
+      show: true,
+      message: `Document ${type === "identity" ? "ID Card" : "Certificate"} ${status}.`,
+      variant: status === "approved" ? "success" : "danger",
+    });
+    setTimeout(() => setNotification({ show: false }), 2500);
   };
 
-  const openModal = () => {
-    setShowVerificationModal(true);
-    setIsApproved(false);
-    setComments("");
-  };
-
-  const handleApprove = () => {
-    console.log("Approved with comment:", comments);
-    setShowVerificationModal(false);
-  };
-
-  const handleDecline = () => {
-    console.log("Declined with comment:", comments);
-    setShowVerificationModal(false);
+  // Optional: When creating a new handyman, use this function!
+  const addNewHandyman = (handymanObj, newId) => {
+    const db = getDatabase();
+    const newHandymanRef = ref(db, `Handyman/${newId}`);
+    set(newHandymanRef, {
+      ...handymanObj,
+      idApprovedStatus: "pending",
+      certificateApprovedStatus: "pending",
+    });
   };
 
   const handleOpenVerificationModal = (handyman, type) => {
     const link =
-      type === "identity"
-        ? handyman.photoIdCard
-        : handyman.certificates;
-
-    const formattedLinks = Array.isArray(link)
-      ? link
-      : link
-      ? [link]
-      : [];
-    
+      type === "identity" ? handyman.photoIdCard : handyman.certificates;
+    const formattedLinks = Array.isArray(link) ? link : link ? [link] : [];
     setVerificationLinks(formattedLinks);
     setVerificationType(type);
     setComments("");
     setIsApproved(false);
+    setSelectedHandyman(handyman);
     setShowVerificationModal(true);
   };
 
@@ -149,15 +158,9 @@ function HandymanVerification() {
     setEditedUser((prev) => ({ ...prev, [key]: value }));
   };
 
-  const handleUpdate = () => {
-    console.log("Updated data:", editedUser);
-    setShowModal(false);
-  };
-
   useEffect(() => {
     const db = getDatabase();
     const handymanRef = ref(db, "Handyman");
-
     const unsubscribe = onValue(
       handymanRef,
       (snapshot) => {
@@ -180,7 +183,6 @@ function HandymanVerification() {
         setLoading(false);
       }
     );
-
     return () => unsubscribe();
   }, []);
 
@@ -208,17 +210,14 @@ function HandymanVerification() {
   const filteredData = data.filter((item) => {
     const status = item.verificationStatus || "pending";
     const statusMatch = filterStatus === "All" || status === filterStatus;
-
     const searchMatch =
       item.firstName?.toLowerCase().includes(searchTerm.toLowerCase()) ||
       item.lastName?.toLowerCase().includes(searchTerm.toLowerCase()) ||
       item.phoneNumber?.toLowerCase().includes(searchTerm.toLowerCase());
-
     const itemDate = new Date(item.createdAt || item.date);
     const inDateRange =
       (!startDate || new Date(startDate) <= itemDate) &&
       (!endDate || itemDate <= new Date(endDate));
-
     return statusMatch && searchMatch && inDateRange;
   });
 
@@ -240,13 +239,151 @@ function HandymanVerification() {
     setSelectedHandyman(handyman);
     setShowMessageModal(true);
   };
+  const handleUpdate = async () => {
+    if (!editedUser || !editedUser.handymanId) return;
+
+    try {
+      const db = getDatabase();
+      const handymanRef = ref(db, `Handyman/${editedUser.handymanId}`);
+      await update(handymanRef, {
+        firstName: editedUser.firstName,
+        lastName: editedUser.lastName,
+        email: editedUser.email,
+        phoneNumber: editedUser.phoneNumber,
+        // ...add other fields as required
+      });
+
+      setNotification({
+        show: true,
+        message: "User details updated successfully.",
+        variant: "info",
+      });
+      setShowModal(false);
+    } catch (err) {
+      setNotification({
+        show: true,
+        message: "Failed to update user.",
+        variant: "danger",
+      });
+    }
+  };
+
+  const statusStyles = {
+    approved: {
+      color: "#15af52",
+      icon: "bi bi-check2-circle",
+      label: "Approved",
+    },
+    pending: {
+      color: "#ffc107",
+      icon: "bi bi-hourglass-split",
+      label: "Pending",
+    },
+    declined: { color: "#e74c3c", icon: "bi bi-x-circle", label: "Declined" },
+  };
+
+  const verificationStatusOptions = [
+    { value: "pending", label: "Pending", color: "#ffc107" },
+    { value: "approved", label: "Approved", color: "#15af52" },
+    { value: "declined", label: "Declined", color: "#e74c3c" },
+  ];
+
+  const DocStatusText = ({ status = "pending" }) => {
+    const { color, icon, label } =
+      statusStyles[status] || statusStyles["pending"];
+    return (
+      <span
+        style={{
+          color,
+          fontWeight: 600,
+          fontSize: "0.98em",
+          display: "inline-flex",
+          alignItems: "center",
+          gap: "4px",
+          marginLeft: "0.5rem",
+        }}
+      >
+        <i className={icon} style={{ fontSize: "1.1em" }}></i>
+      </span>
+    );
+  };
+
+  // Handle dropdown click (shows confirm modal, checks warning)
+  const handleStatusDropdownChange = (item, newStatus) => {
+    let warning = "";
+    if (
+      newStatus === "approved" &&
+      (item.idApprovedStatus !== "approved" ||
+        item.certificateApprovedStatus !== "approved")
+    ) {
+      warning =
+        "You are setting this handyman to 'Approved' but not all required documents are approved. Are you sure you want to continue?";
+    }
+    setPendingStatusChange({
+      handymanId: item.handymanId,
+      newStatus,
+      warning,
+    });
+    setShowConfirmModal(true);
+  };
+
+  // Save status change if confirmed
+  const handleConfirmStatusChange = async () => {
+    const { handymanId, newStatus } = pendingStatusChange;
+    const db = getDatabase();
+    await update(ref(db, `Handyman/${handymanId}`), {
+      verificationStatus: newStatus,
+      verificationStatusManual: true,
+    });
+    setShowConfirmModal(false);
+    setNotification({
+      show: true,
+      message: "Verification status updated manually.",
+      variant: "info",
+    });
+  };
 
   return (
     <div className="p-4">
-      <StickyHeader
-        currentUser={currentUser}
-        pageTitle="Handyman Verification"
-      />
+      <StickyHeader currentUser={currentUser} pageTitle="Handyman Verification" />
+      {notification.show && (
+        <div
+          className={`alert alert-${notification.variant} text-center`}
+          role="alert"
+        >
+          {notification.message}
+        </div>
+      )}
+
+      {/* Confirmation modal for status change */}
+      <Modal
+        show={showConfirmModal}
+        onHide={() => setShowConfirmModal(false)}
+        centered
+      >
+        <Modal.Header closeButton>
+          <Modal.Title>Confirm Status Change</Modal.Title>
+        </Modal.Header>
+        <Modal.Body>
+          {pendingStatusChange.warning && (
+            <div className="alert alert-warning">
+              {pendingStatusChange.warning}
+            </div>
+          )}
+          Are you sure you want to change the verification status to <b>
+            {pendingStatusChange.newStatus?.charAt(0).toUpperCase() +
+              pendingStatusChange.newStatus?.slice(1)}
+          </b>?
+        </Modal.Body>
+        <Modal.Footer>
+          <Button variant="secondary" onClick={() => setShowConfirmModal(false)}>
+            Cancel
+          </Button>
+          <Button variant="primary" onClick={handleConfirmStatusChange}>
+            Confirm
+          </Button>
+        </Modal.Footer>
+      </Modal>
 
       <ConfirmModal
         show={confirmModal.show}
@@ -260,6 +397,7 @@ function HandymanVerification() {
         onConfirm={handleConfirmPhoneStatus}
       />
 
+      {/* STATUS Filter */}
       <div className="mb-3 d-flex align-items-center gap-2 mt-4">
         <span>Status:</span>
         <Form.Select
@@ -287,63 +425,7 @@ function HandymanVerification() {
         )}
       </div>
 
-      {showIdentitySidebar && (
-        <>
-          <div className="overlay" onClick={closeAll} />
-          <div className="verification-sidebar show">
-            <span className="close-btn" onClick={closeAll}>&times;</span>
-            <h2>Identity Card Verification</h2>
-            <p>Please verify the uploaded identity documents.</p>
-
-            <div className="image-section">
-              <h3>Submitted Images</h3>
-              <div>
-                <p><strong>Front:</strong></p>
-                {imageData.front ? (
-                  <img src={imageData.front} alt="Front of document" className="verification-image" />
-                ) : (
-                  <p className="text-muted">No front image available</p>
-                )}
-              </div>
-              {imageData.back && (
-                <div>
-                  <p><strong>Back:</strong></p>
-                  <img src={imageData.back} alt="Back of document" className="verification-image" />
-                </div>
-              )}
-            </div>
-
-            <div className="checkbox-section">
-              <div className="select-all">
-                <button className="button identity-btn" onClick={selectAll}>Select All</button>
-                <button className="button decline-btn" onClick={deselectAll}>Deselect All</button>
-              </div>
-              {requirements.map((req, index) => (
-                <div className="checkbox-item" key={index}>
-                  <input
-                    type="checkbox"
-                    checked={checkedItems[index]}
-                    onChange={() => toggleCheckbox(index)}
-                  />
-                  <label>{req}</label>
-                </div>
-              ))}
-            </div>
-
-            <textarea 
-              className="textarea" 
-              placeholder="Enter verification comments..."
-              value={comments}
-              onChange={(e) => setComments(e.target.value)}
-            />
-            <div className="actions">
-              <button className="button decline-btn" onClick={closeAll}>Decline</button>
-              <button className="button approve-btn" onClick={closeAll}>Approve</button>
-            </div>
-          </div>
-        </>
-      )}
-
+      {/* SEARCH + ENTRIES + DATES */}
       <div className="d-flex justify-content-around align-items-center mb-3 flex-wrap gap-3">
         <div className="d-flex align-items-center gap-3 flex-grow-1">
           <InputGroup style={{ width: "30%" }}>
@@ -431,7 +513,39 @@ function HandymanVerification() {
           )}
         </div>
 
-        <Button variant="outline-primary">Export Report</Button>
+        <ExportReportButton
+          data={filteredData}
+          columns={[
+            { header: "#", accessor: (_, idx) => idx + 1 },
+            {
+              header: "Name",
+              accessor: (row) => `${row.firstName || ""} ${row.lastName || ""}`,
+            },
+            { header: "Phone", accessor: "phoneNumber" },
+            {
+              header: "Address",
+              accessor: (row) =>
+                `${row.houseNumber || ""}, ${row.street || ""}, ${
+                  row.area || ""
+                }, ${row.thana || ""}, ${row.district || ""}, ${
+                  row.division || ""}, ${row.postcode || ""}`,
+            },
+            { header: "ID Card", accessor: "photoIdCard" },
+            { header: "Certificates", accessor: "certificates" },
+            {
+              header: "Status",
+              accessor: (row) => row.verificationStatus || "pending",
+            },
+            {
+              header: "Submission Date",
+              accessor: (row) =>
+                row.createdAt
+                  ? new Date(row.createdAt).toLocaleDateString()
+                  : "",
+            },
+          ]}
+          fileName="Handyman_Verification_Report"
+        />
       </div>
 
       {loading ? (
@@ -524,46 +638,100 @@ function HandymanVerification() {
                     {`${item.houseNumber}, ${item.street}, ${item.area}, ${item.thana}, ${item.district}, ${item.division}, ${item.postcode}`}
                   </td>
                   <td>
-                    <Button
-                      variant="link"
-                      className="p-0 text-decoration-none"
-                      onClick={() => handleOpenIdentitySidebar(item)}
-                    >
-                      {item.photoIdCard?.startsWith("http") ? "View ID Card" : item.photoIdCard || "No ID Card"}
-                    </Button>
+                    <div className="d-flex align-items-center">
+                      <DocStatusText
+                        status={item.idApprovedStatus || "pending"}
+                      />
+                      <Button
+                        variant="link"
+                        className="p-0 text-decoration-none"
+                        onClick={() =>
+                          handleOpenVerificationModal(item, "identity")
+                        }
+                        style={{
+                          cursor: "pointer",
+                          color:
+                            statusStyles[item.idApprovedStatus || "pending"]
+                              .color,
+                          fontWeight: 600,
+                          marginLeft: "0.5rem",
+                        }}
+                      >
+                        {item.photoIdCard}
+                      </Button>
+                    </div>
                   </td>
                   <td>
-                    <Button
-                      variant="link"
-                      className="p-0 text-decoration-none"
-                      onClick={() => handleOpenVerificationModal(item, "certificates")}
+                    <div className="d-flex align-items-center">
+                      <DocStatusText
+                        status={item.certificateApprovedStatus || "pending"}
+                      />
+                      <Button
+                        variant="link"
+                        className="p-0 text-decoration-none"
+                        onClick={() =>
+                          handleOpenVerificationModal(item, "certificates")
+                        }
+                        style={{
+                          cursor: "pointer",
+                          color:
+                            statusStyles[
+                              item.certificateApprovedStatus || "pending"
+                            ].color,
+                          fontWeight: 600,
+                          marginLeft: "0.5rem",
+                        }}
+                      >
+                        {item.certificates?.startsWith("http")
+                          ? "View Certificate"
+                          : item.certificates || "No Certificate"}
+                      </Button>
+                    </div>
+                  </td>
+                  {/* STATUS DROPDOWN */}
+                  <td>
+                    <Form.Select
+                      size="sm"
+                      value={item.verificationStatus || "pending"}
+                      style={{
+                        width: 120,
+                        fontWeight: "bold",
+                        color:
+                          verificationStatusOptions.find(
+                            (opt) =>
+                              opt.value ===
+                              (item.verificationStatus || "pending")
+                          )?.color || "#212529",
+                        background:
+                          item.verificationStatus === "approved"
+                            ? "#eafaf1"
+                            : item.verificationStatus === "declined"
+                            ? "#faeaea"
+                            : "#fffbe8",
+                        borderColor: "#d5d5d5",
+                      }}
+                      onChange={(e) =>
+                        handleStatusDropdownChange(item, e.target.value)
+                      }
                     >
-                      {item.certificates?.startsWith("http") ? "View Certificate" : item.certificates || "No Certificate"}
-                    </Button>
+                      {verificationStatusOptions.map((option) => (
+                        <option
+                          key={option.value}
+                          value={option.value}
+                          style={{
+                            color: option.color,
+                          }}
+                        >
+                          {option.label}
+                        </option>
+                      ))}
+                    </Form.Select>
                   </td>
                   <td>
-                    <Badge
-                      bg={
-                        item.verificationStatus === "approved"
-                          ? "success"
-                          : item.verificationStatus === "declined"
-                          ? "danger"
-                          : "warning"
-                      }
-                      text={
-                        item.verificationStatus === "pending" ||
-                        !item.verificationStatus
-                          ? "dark"
-                          : "white"
-                      }
-                    >
-                      {(item.verificationStatus || "pending")
-                        .charAt(0)
-                        .toUpperCase() +
-                        (item.verificationStatus || "pending").slice(1)}
-                    </Badge>
+                    {item.createdAt
+                      ? new Date(item.createdAt).toLocaleDateString()
+                      : ""}
                   </td>
-                  <td>{new Date(item.createdAt).toLocaleDateString()}</td>
                   <td>
                     <Button
                       variant="outline-primary"
@@ -573,7 +741,6 @@ function HandymanVerification() {
                     >
                       View
                     </Button>
-
                     <Button
                       variant="outline-info"
                       size="sm"
@@ -665,6 +832,67 @@ function HandymanVerification() {
                                       >
                                         View Document
                                       </a>
+                                      {/* Show status badge */}
+                                      {fieldKey === "photoIdCard" && (
+                                        <>
+                                          {editedUser.idApprovedStatus ===
+                                            "approved" && (
+                                            <Badge
+                                              bg="success"
+                                              className="ms-2"
+                                            >
+                                              ✓ Approved
+                                            </Badge>
+                                          )}
+                                          {editedUser.idApprovedStatus ===
+                                            "declined" && (
+                                            <Badge bg="danger" className="ms-2">
+                                              ✗ Declined
+                                            </Badge>
+                                          )}
+                                          {(!editedUser.idApprovedStatus ||
+                                            editedUser.idApprovedStatus ===
+                                              "pending") && (
+                                            <Badge
+                                              bg="warning"
+                                              text="dark"
+                                              className="ms-2"
+                                            >
+                                              Pending
+                                            </Badge>
+                                          )}
+                                        </>
+                                      )}
+                                      {fieldKey === "certificates" && (
+                                        <>
+                                          {editedUser.certificateApprovedStatus ===
+                                            "approved" && (
+                                            <Badge
+                                              bg="success"
+                                              className="ms-2"
+                                            >
+                                              ✓ Approved
+                                            </Badge>
+                                          )}
+                                          {editedUser.certificateApprovedStatus ===
+                                            "declined" && (
+                                            <Badge bg="danger" className="ms-2">
+                                              ✗ Declined
+                                            </Badge>
+                                          )}
+                                          {(!editedUser.certificateApprovedStatus ||
+                                            editedUser.certificateApprovedStatus ===
+                                              "pending") && (
+                                            <Badge
+                                              bg="warning"
+                                              text="dark"
+                                              className="ms-2"
+                                            >
+                                              Pending
+                                            </Badge>
+                                          )}
+                                        </>
+                                      )}
                                     </div>
                                   ) : (
                                     <div className="text-muted mb-2">
@@ -700,7 +928,7 @@ function HandymanVerification() {
                       </div>
                     );
                   }
-
+                  // Default rendering for other sections
                   return (
                     <div key={sectionTitle} className="mb-4">
                       <h6 className="border-bottom pb-1 mb-3">
@@ -783,19 +1011,29 @@ function HandymanVerification() {
       <VerificationModal
         show={showVerificationModal}
         onHide={() => setShowVerificationModal(false)}
-        title={verificationType === "identity" ? "Identity Card" : "Certificates"}
+        title={
+          verificationType === "identity" ? "Identity Card" : "Certificates"
+        }
         documentType={verificationType}
         documentLinks={verificationLinks}
         comments={comments}
         setComments={setComments}
         isApproved={isApproved}
         setIsApproved={setIsApproved}
-        onApprove={() => {
-          console.log("Approved:", verificationType, comments);
+        onApprove={async () => {
+          await handleDocumentApproval(
+            selectedHandyman,
+            verificationType,
+            "approved"
+          );
           setShowVerificationModal(false);
         }}
-        onDecline={() => {
-          console.log("Declined:", verificationType, comments);
+        onDecline={async () => {
+          await handleDocumentApproval(
+            selectedHandyman,
+            verificationType,
+            "declined"
+          );
           setShowVerificationModal(false);
         }}
       />
