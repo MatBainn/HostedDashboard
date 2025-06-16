@@ -73,7 +73,9 @@ function HandymanVerification() {
     const idStatus =
       type === "identity" ? status : currentHandyman[idField] || "pending";
     const certStatus =
-      type === "certificates" ? status : currentHandyman[certField] || "pending";
+      type === "certificates"
+        ? status
+        : currentHandyman[certField] || "pending";
     const manual = currentHandyman.verificationStatusManual;
 
     // Only auto-update if manual override is false/not set
@@ -91,7 +93,9 @@ function HandymanVerification() {
 
     setNotification({
       show: true,
-      message: `Document ${type === "identity" ? "ID Card" : "Certificate"} ${status}.`,
+      message: `Document ${
+        type === "identity" ? "ID Card" : "Certificate"
+      } ${status}.`,
       variant: status === "approved" ? "success" : "danger",
     });
     setTimeout(() => setNotification({ show: false }), 2500);
@@ -207,8 +211,23 @@ function HandymanVerification() {
     }));
   };
 
+  const getShortFileName = (input) => {
+    if (!input) return "No File";
+    try {
+      if (input.startsWith("http")) {
+        const decoded = decodeURIComponent(input);
+        const parts = decoded.split("/");
+        const filePart = parts[parts.length - 1];
+        return filePart.split("?")[0]; // Remove query params
+      }
+      return input;
+    } catch (err) {
+      return "File";
+    }
+  };
+
   const filteredData = data.filter((item) => {
-    const status = item.verificationStatus || "pending";
+    const status = item.verificationStatus || "Pending";
     const statusMatch = filterStatus === "All" || status === filterStatus;
     const searchMatch =
       item.firstName?.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -286,11 +305,12 @@ function HandymanVerification() {
     { value: "pending", label: "Pending", color: "#ffc107" },
     { value: "approved", label: "Approved", color: "#15af52" },
     { value: "declined", label: "Declined", color: "#e74c3c" },
+    { value: "suspected", label: "Suspected", color: "#6c757d" },
   ];
 
-  const DocStatusText = ({ status = "pending" }) => {
+  const DocStatusText = ({ status = "Pending" }) => {
     const { color, icon, label } =
-      statusStyles[status] || statusStyles["pending"];
+      statusStyles[status] || statusStyles["Pending"];
     return (
       <span
         style={{
@@ -312,9 +332,9 @@ function HandymanVerification() {
   const handleStatusDropdownChange = (item, newStatus) => {
     let warning = "";
     if (
-      newStatus === "approved" &&
-      (item.idApprovedStatus !== "approved" ||
-        item.certificateApprovedStatus !== "approved")
+      newStatus === "Approved" &&
+      (item.idApprovedStatus !== "Approved" ||
+        item.certificateApprovedStatus !== "Approved")
     ) {
       warning =
         "You are setting this handyman to 'Approved' but not all required documents are approved. Are you sure you want to continue?";
@@ -343,9 +363,15 @@ function HandymanVerification() {
     });
   };
 
+  const capitalize = (str) =>
+    str?.charAt(0).toUpperCase() + str?.slice(1).toLowerCase();
+
   return (
     <div className="p-4">
-      <StickyHeader currentUser={currentUser} pageTitle="Handyman Verification" />
+      <StickyHeader
+        currentUser={currentUser}
+        pageTitle="Handyman Verification"
+      />
       {notification.show && (
         <div
           className={`alert alert-${notification.variant} text-center`}
@@ -370,13 +396,14 @@ function HandymanVerification() {
               {pendingStatusChange.warning}
             </div>
           )}
-          Are you sure you want to change the verification status to <b>
-            {pendingStatusChange.newStatus?.charAt(0).toUpperCase() +
-              pendingStatusChange.newStatus?.slice(1)}
-          </b>?
+          Are you sure you want to change the verification status to{" "}
+          <b>{capitalize(pendingStatusChange.newStatus)}</b>?
         </Modal.Body>
         <Modal.Footer>
-          <Button variant="secondary" onClick={() => setShowConfirmModal(false)}>
+          <Button
+            variant="secondary"
+            onClick={() => setShowConfirmModal(false)}
+          >
             Cancel
           </Button>
           <Button variant="primary" onClick={handleConfirmStatusChange}>
@@ -408,10 +435,13 @@ function HandymanVerification() {
           }}
           style={{ width: "200px" }}
         >
-          <option value="All">All</option>
-          <option value="pending">Pending</option>
-          <option value="approved">Approved</option>
-          <option value="declined">Declined</option>
+          {["All", "Pending", "Approved", "Declined", "Suspected"].map(
+            (status) => (
+              <option value={status.toLowerCase()} key={status}>
+                {status}
+              </option>
+            )
+          )}
         </Form.Select>
 
         {filterStatus !== "All" && (
@@ -528,13 +558,15 @@ function HandymanVerification() {
                 `${row.houseNumber || ""}, ${row.street || ""}, ${
                   row.area || ""
                 }, ${row.thana || ""}, ${row.district || ""}, ${
-                  row.division || ""}, ${row.postcode || ""}`,
+                  row.division || ""
+                }, ${row.postcode || ""}`,
             },
             { header: "ID Card", accessor: "photoIdCard" },
             { header: "Certificates", accessor: "certificates" },
             {
               header: "Status",
-              accessor: (row) => row.verificationStatus || "pending",
+              accessor: (row) =>
+                capitalize(row.verificationStatus || "pending"),
             },
             {
               header: "Submission Date",
@@ -657,10 +689,11 @@ function HandymanVerification() {
                           marginLeft: "0.5rem",
                         }}
                       >
-                        {item.photoIdCard}
+                        {getShortFileName(item.photoIdCard)}
                       </Button>
                     </div>
                   </td>
+
                   <td>
                     <div className="d-flex align-items-center">
                       <DocStatusText
